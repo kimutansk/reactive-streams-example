@@ -14,36 +14,42 @@ import com.github.kimutansk.reactive.RabbitRegistry._
 
 /**
  * This is our flow factory.
- * 
+ *
  * Here we are only applying some simple filtering, logging and mapping, 
  * but the idea is that this part as the meat of your application.
- * 
+ *
  * Depending on your domain you could for example call some external services or actors here.
  */
 trait FlowFactory extends LazyLogging {
-  
-  /** Flow responsible for mapping the incoming RabbitMQ message to our domain input. */
-  def consumerMapping: Flow[Delivery, ByteString] =
-    Flow[Delivery].map(_.message.body)
-  
-  /** Flow performing our domain processing. */
-  def domainProcessing(implicit ex: ExecutionContext): Flow[ByteString, CensoredMessage] = 
-    Flow[ByteString].
-  
-    // to string
-    map { _.utf8String }.
-    
-    // do something time consuming
-    mapAsync { DomainService.expensiveCall }.
 
-    // classify message
-    map { DomainService.classify }
-    
+  /** Flow responsible for mapping the incoming RabbitMQ message to our domain input. */
+  def consumerMapping: Flow[Delivery, ByteString, Unit] =
+    Flow[Delivery].map(_.message.body)
+
+  /** Flow performing our domain processing. */
+  def domainProcessing(implicit ex: ExecutionContext): Flow[ByteString, CensoredMessage, Unit] =
+    Flow[ByteString].
+
+      // to string
+      map {
+      _.utf8String
+    }.
+
+      // do something time consuming
+      mapAsync(1) {
+      DomainService.expensiveCall
+    }.
+
+      // classify message
+      map {
+      DomainService.classify
+    }
+
   /** Flow responsible for mapping the domain processing result into a RabbitMQ message. */
-  def publisherMapping: Flow[CensoredMessage, Routed] = 
-    Flow[CensoredMessage] map(cMsg => cMsg match {
+  def publisherMapping: Flow[CensoredMessage, Routed, Unit] =
+    Flow[CensoredMessage] map (cMsg => cMsg match {
       case MessageSafe(msg) => Routed(routingKey = outOkQueue.name, Message(body = ByteString(cMsg.message)))
       case MessageThreat(msg) => Routed(routingKey = outNokQueue.name, Message(body = ByteString(cMsg.message)))
     })
-    
+
 }
