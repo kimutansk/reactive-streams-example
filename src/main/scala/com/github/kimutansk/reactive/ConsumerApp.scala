@@ -1,23 +1,15 @@
 package com.github.kimutansk.reactive
 
-import scala.concurrent.Future
-import scala.util.{Failure, Success}
-
 import akka.actor.ActorSystem
+import akka.stream.ActorMaterializer
+import akka.stream.scaladsl.{Sink, Source}
 import akka.util.ByteString
-
-import akka.stream.FlowMaterializer
-import akka.stream.scaladsl.{OnCompleteSink, Source, Sink}
-
+import com.github.kimutansk.reactive.RabbitRegistry.{inboundExchange, inboundQueue, outNokQueue, outOkQueue, outboundExchange}
 import com.typesafe.scalalogging.slf4j.LazyLogging
-
 import io.scalac.amqp.{Connection, Message, Queue}
 
-import com.github.kimutansk.reactive.RabbitRegistry.inboundQueue
-import com.github.kimutansk.reactive.RabbitRegistry.inboundExchange
-import com.github.kimutansk.reactive.RabbitRegistry.outOkQueue
-import com.github.kimutansk.reactive.RabbitRegistry.outNokQueue
-import com.github.kimutansk.reactive.RabbitRegistry.outboundExchange
+import scala.concurrent.Future
+import scala.util.{Failure, Success}
 
 
 object ConsumerApp extends App with FlowFactory with LazyLogging {
@@ -26,7 +18,7 @@ object ConsumerApp extends App with FlowFactory with LazyLogging {
   
   import actorSystem.dispatcher
   
-  implicit val materializer = FlowMaterializer()
+  implicit val materializer = ActorMaterializer()
   
   val connection = Connection()
   
@@ -93,10 +85,8 @@ object ConsumerApp extends App with FlowFactory with LazyLogging {
       
     /* log the trial messages consumed from the queue */
     Source(connection.consume(outOkQueue.name)).
-      take(trialMessages.size).
-      map(msg => logger.info(s"'${msg.message.body.utf8String}' delivered to ${outOkQueue.name}")).
-      runWith(new OnCompleteSink({ 
-        case Success(_) => logger.info("Trial run finished. You can now go to http://localhost:15672/ and try publishing messages manually.")
-        case Failure(ex) => logger.error("Trial run finished with error.", ex)}))
+      take(trialMessages.size).runForeach(msg => logger.info(s"'${msg.message.body.utf8String}' delivered to ${outOkQueue.name}")).onComplete{
+      case Success(_) => logger.info("Trial run finished. You can now go to http://localhost:15672/ and try publishing messages manually.")
+      case Failure(ex) => logger.error("Trial run finished with error.", ex)}
   }
 }
